@@ -1,4 +1,4 @@
-module hachibi
+module github.com/mtfiqh/hachibi
 
 go 1.18
 

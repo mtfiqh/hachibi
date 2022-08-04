@@ -2,6 +2,7 @@ package hachibi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,10 +29,10 @@ type Processor struct {
 	db *sqlx.DB
 }
 
-func (p Processor) Process(transport hachibi.Transport) error {
+func (p Processor) Process(ctx context.Context, transport *hachibi.Transport) error {
 
 	var requestBody any
-	err := json.Unmarshal(transport.Response.Body, &requestBody)
+	err := json.Unmarshal(transport.Request.Body, &requestBody)
 	if err != nil {
 		requestBody = transport.Request.Body
 	}
@@ -53,7 +54,7 @@ func (p Processor) Process(transport hachibi.Transport) error {
 	}
 
 	if p.Transformer != nil {
-		err := p.Transformer.Transform(&transport)
+		err := p.Transformer.Transform(transport)
 		if err != nil {
 			return err
 		}
@@ -64,13 +65,12 @@ func (p Processor) Process(transport hachibi.Transport) error {
 
 		requestBytes, _ := json.Marshal(request)
 		responseBytes, err := json.Marshal(response)
-		req := json.RawMessage(requestBytes)
 		if err != nil {
 			return err
 		}
 		_, err = p.db.NamedExec(query, map[string]any{
 			"id":          uuid.New().String(),
-			"request":     req,
+			"request":     requestBytes,
 			"response":    responseBytes,
 			"method":      transport.Method,
 			"url":         transport.URL,
@@ -140,7 +140,7 @@ func (t Request) Transform(transport *hachibi.Transport) error {
 	return nil
 }
 
-func (t Req) Transform(transport *hachibi.Transport) error {
+func (t Req) PreProcess(ctx context.Context, transport *hachibi.Transport) error {
 	if err := json.Unmarshal(transport.Request.Body, &t); err != nil {
 		return err
 	}
@@ -156,18 +156,37 @@ func (t Req) Transform(transport *hachibi.Transport) error {
 	return nil
 }
 
-func TestTransport_RoundTrip(t *testing.T) {
-	transport := hachibi.NewTransport(hachibi.WithProcessingData(NewProcessor()))
-	client := http.Client{Transport: transport}
-	url := "http://demo9323592.mockable.io/post"
+func (p Processor) PreProcess(ctx context.Context, transport *hachibi.Transport) error {
+	t := Request{}
+	if err := json.Unmarshal(transport.Request.Body, &t); err != nil {
+		return err
+	}
 
+	t.Image = fmt.Sprintf("%s/%s", "upload", "image-123")
+
+	newBody, err := json.Marshal(t)
+	if err != nil {
+		return err
+	}
+
+	transport.Request.Body = newBody
+	return nil
+}
+
+func TestTransport_RoundTrip(t *testing.T) {
 	db, err := sqlx.Open("postgres", "user=postgres dbname=hachibi password=secret port=15432 sslmode=disable")
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	tt := Req{}
+	pp := NewProcessor(WithDB(db))
+	transport := hachibi.NewTransport(hachibi.WithProcessingData(pp), hachibi.WithPreProcessor(tt))
+	client := http.Client{Transport: transport}
+	url := "http://demo9323592.mockable.io/post"
+
 	t.Run("with application/json post with transformer", func(t *testing.T) {
-		transport := hachibi.NewTransport(hachibi.WithProcessingData(NewProcessor(WithDB(db))))
+		//transport := hachibi.NewTransport(hachibi.WithProcessingData(NewProcessor(WithDB(db))))
 		client := http.Client{Transport: transport}
 
 		body := struct {

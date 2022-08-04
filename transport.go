@@ -2,29 +2,20 @@ package hachibi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 type Payload struct {
 	Header http.Header `json:"header"`
 	Body   []byte      `json:"body"`
-}
-
-type Error []error
-
-func (e Error) Error() string {
-	errors := make([]string, 0)
-
-	for _, ee := range e {
-		errors = append(errors, ee.Error())
-	}
-
-	return strings.Join(errors, ", ")
 }
 
 type Request struct {
@@ -50,36 +41,26 @@ type Transport struct {
 
 	Error Error `json:"error"`
 
-	processor    Processor
-	ErrorHandler ErrorHandler
+	preProcessor  PreProcessor
+	processor     Processor
+	postProcessor PostProcessor
+	ErrorHandler  ErrorHandler
 }
 
 type Processor interface {
-	Process(transport Transport) error
+	Process(ctx context.Context, transport *Transport) error
+}
+
+type PreProcessor interface {
+	PreProcess(ctx context.Context, transport *Transport) error
+}
+
+type PostProcessor interface {
+	PostProcessor(ctx context.Context, transport *Transport) error
 }
 
 type ErrorHandler interface {
-	ErrorHandle(e error)
-}
-
-type TransportOpt func(*Transport)
-
-func WithProcessingData(processor Processor) TransportOpt {
-	return func(transport *Transport) {
-		transport.processor = processor
-	}
-}
-
-func WithEventName(name string) TransportOpt {
-	return func(transport *Transport) {
-		transport.Event = name
-	}
-}
-
-func WithErrorHandle(handler ErrorHandler) TransportOpt {
-	return func(transport *Transport) {
-		transport.ErrorHandler = handler
-	}
+	ErrorHandle(ctx context.Context, e error)
 }
 
 func NewTransport(opts ...TransportOpt) *Transport {
@@ -97,13 +78,15 @@ func NewTransport(opts ...TransportOpt) *Transport {
 
 func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	tNow := time.Now().Local()
+	ctx := request.Context()
 
 	var response *http.Response
 
+	if err := t.extractRequest(request); err != nil {
+		t.Error = append(t.Error, err)
+	}
+
 	defer func() {
-		if err := t.extractRequest(request); err != nil {
-			t.Error = append(t.Error, err)
-		}
 
 		if response != nil {
 			if err := t.extractResponse(response); err != nil {
@@ -113,14 +96,30 @@ func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 
 		currentTime := time.Now().Local()
 		t.Duration = currentTime.Sub(tNow).Milliseconds()
+
+		if t.preProcessor != nil {
+			if err := t.preProcessor.PreProcess(ctx, t); err != nil {
+				err = errors.Wrap(err, "pre process error")
+				t.Error = append(t.Error, err)
+			}
+		}
+
 		if t.processor != nil {
-			if err := t.processor.Process(*t); err != nil {
+			if err := t.processor.Process(ctx, t); err != nil {
+				err = errors.Wrap(err, "process error")
+				t.Error = append(t.Error, err)
+			}
+		}
+
+		if t.postProcessor != nil {
+			if err := t.postProcessor.PostProcessor(ctx, t); err != nil {
+				err = errors.Wrap(err, "post process error")
 				t.Error = append(t.Error, err)
 			}
 		}
 
 		if len(t.Error) > 0 && t.ErrorHandler != nil {
-			t.ErrorHandler.ErrorHandle(t.Error)
+			t.ErrorHandler.ErrorHandle(ctx, t.Error)
 		}
 	}()
 

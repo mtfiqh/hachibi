@@ -1,0 +1,5 @@
+package hachibi
+
+func main() {
+
+}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"hachibi"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -17,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	"github.com/mtfiqh/hachibi"
 )
 
 type Transformer interface {

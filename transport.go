@@ -36,6 +36,8 @@ type Transport struct {
 	Method     string `json:"method"`
 	StatusCode int    `json:"statusCode"`
 
+	Event string `json:"event"`
+
 	processor Processor
 }
 
@@ -48,6 +50,12 @@ type TransportOpt func(*Transport)
 func WithProcessingData(processor Processor) TransportOpt {
 	return func(transport *Transport) {
 		transport.processor = processor
+	}
+}
+
+func WithEventName(name string) TransportOpt {
+	return func(transport *Transport) {
+		transport.Event = name
 	}
 }
 

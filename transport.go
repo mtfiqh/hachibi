@@ -8,13 +8,23 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/pkg/errors"
 )
 
 type Payload struct {
 	Header http.Header `json:"header"`
 	Body   []byte      `json:"body"`
+}
+
+type Error []error
+
+func (e Error) Error() string {
+	errors := make([]string, 0)
+
+	for _, ee := range e {
+		errors = append(errors, ee.Error())
+	}
+
+	return strings.Join(errors, ", ")
 }
 
 type Request struct {
@@ -38,11 +48,18 @@ type Transport struct {
 
 	Event string `json:"event"`
 
-	processor Processor
+	Error Error `json:"error"`
+
+	processor    Processor
+	ErrorHandler ErrorHandler
 }
 
 type Processor interface {
 	Process(transport Transport) error
+}
+
+type ErrorHandler interface {
+	ErrorHandle(e error)
 }
 
 type TransportOpt func(*Transport)
@@ -59,9 +76,16 @@ func WithEventName(name string) TransportOpt {
 	}
 }
 
+func WithErrorHandle(handler ErrorHandler) TransportOpt {
+	return func(transport *Transport) {
+		transport.ErrorHandler = handler
+	}
+}
+
 func NewTransport(opts ...TransportOpt) *Transport {
 	t := &Transport{
 		originalRoundTripper: http.DefaultTransport,
+		Error:                make([]error, 0),
 	}
 
 	for _, opt := range opts {
@@ -74,28 +98,36 @@ func NewTransport(opts ...TransportOpt) *Transport {
 func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	tNow := time.Now().Local()
 
-	if err := t.extractRequest(request); err != nil {
-		return nil, errors.Wrap(err, "[hachibi]: extract request")
-	}
+	var response *http.Response
 
-	response, err := t.originalRoundTripper.RoundTrip(request)
-	if err != nil {
-		return nil, err
-	}
-
-	if response != nil {
-		if err := t.extractResponse(response); err != nil {
-			return nil, errors.Wrap(err, "[hachibi]: extract response")
+	defer func() {
+		if err := t.extractRequest(request); err != nil {
+			t.Error = append(t.Error, err)
 		}
-	}
 
-	currentTime := time.Now().Local()
-	t.Duration = currentTime.Sub(tNow).Milliseconds()
-
-	if t.processor != nil {
-		if err := t.processor.Process(*t); err != nil {
-			return nil, errors.Wrap(err, "[hachibi]: process request and response")
+		if response != nil {
+			if err := t.extractResponse(response); err != nil {
+				t.Error = append(t.Error, err)
+			}
 		}
+
+		currentTime := time.Now().Local()
+		t.Duration = currentTime.Sub(tNow).Milliseconds()
+		if t.processor != nil {
+			if err := t.processor.Process(*t); err != nil {
+				t.Error = append(t.Error, err)
+			}
+		}
+
+		if len(t.Error) > 0 && t.ErrorHandler != nil {
+			t.ErrorHandler.ErrorHandle(t.Error)
+		}
+	}()
+
+	response, errRoundTrip := t.originalRoundTripper.RoundTrip(request)
+	if errRoundTrip != nil {
+		t.Error = append(t.Error, errRoundTrip)
+		return nil, errRoundTrip
 	}
 
 	return response, nil

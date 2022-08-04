@@ -64,12 +64,13 @@ func (p Processor) Process(transport hachibi.Transport) error {
 
 		requestBytes, _ := json.Marshal(request)
 		responseBytes, err := json.Marshal(response)
+		req := json.RawMessage(requestBytes)
 		if err != nil {
 			return err
 		}
 		_, err = p.db.NamedExec(query, map[string]any{
 			"id":          uuid.New().String(),
-			"request":     requestBytes,
+			"request":     req,
 			"response":    responseBytes,
 			"method":      transport.Method,
 			"url":         transport.URL,

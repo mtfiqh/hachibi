@@ -60,7 +60,7 @@ type PostProcessor interface {
 }
 
 type ErrorHandler interface {
-	ErrorHandle(ctx context.Context, e error)
+	ErrorHandle(ctx context.Context, e Error)
 }
 
 func NewTransport(opts ...TransportOpt) *Transport {

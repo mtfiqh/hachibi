@@ -1,5 +1,4 @@
 package hachibi
 
 func main() {
-
 }

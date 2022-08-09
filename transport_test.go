@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -59,7 +60,8 @@ func (p Processor) Process(ctx context.Context, transport *hachibi.Transport) er
 			return err
 		}
 	}
-
+	errB, _ := json.Marshal(transport.Error)
+	log.Println(string(errB))
 	if p.db != nil {
 		query := `insert into logs (id, request, response, method, url, duration, status_code, created_at) values (:id, :request, :response, :method, :url, :duration, :status_code, :created_at)`
 
@@ -173,6 +175,10 @@ func (p Processor) PreProcess(ctx context.Context, transport *hachibi.Transport)
 	return nil
 }
 
+func (p Processor) ErrorHandle(ctx context.Context, e hachibi.Error) {
+	log.Println("error => ", e.Error())
+}
+
 func TestTransport_RoundTrip(t *testing.T) {
 	db, err := sqlx.Open("postgres", "user=postgres dbname=hachibi password=secret port=15432 sslmode=disable")
 	if err != nil {
@@ -181,9 +187,9 @@ func TestTransport_RoundTrip(t *testing.T) {
 
 	tt := Req{}
 	pp := NewProcessor(WithDB(db))
-	transport := hachibi.NewTransport(hachibi.WithProcessingData(pp), hachibi.WithPreProcessor(tt))
+	transport := hachibi.NewTransport(hachibi.WithProcessingData(pp), hachibi.WithPreProcessor(tt), hachibi.WithErrorHandle(pp))
 	client := http.Client{Transport: transport}
-	url := "http://demo9323592.mockable.io/post"
+	url := "http://localhost:1234/post"
 
 	t.Run("with application/json post with transformer", func(t *testing.T) {
 		//transport := hachibi.NewTransport(hachibi.WithProcessingData(NewProcessor(WithDB(db))))
@@ -200,7 +206,10 @@ func TestTransport_RoundTrip(t *testing.T) {
 		}
 
 		b, _ := json.Marshal(body)
-		req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
+		ctx, canc := context.WithTimeout(context.Background(), 6*time.Second)
+		defer canc()
+		_ = b
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(b))
 		res, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)

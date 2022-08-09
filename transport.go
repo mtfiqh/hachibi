@@ -162,7 +162,7 @@ func (t *Transport) extractRequest(r *http.Request) error {
 		body, err := io.ReadAll(r.Body)
 		r.Body.Close()
 		if err != nil {
-			return err
+			return errors.Wrap(err, "failed to read all request body")
 		}
 
 		t.Request.Body = body
@@ -173,7 +173,7 @@ func (t *Transport) extractRequest(r *http.Request) error {
 	return nil
 }
 
-type fileData struct {
+type MultipartFileData struct {
 	FileName string `json:"file_name"`
 	Size     int64  `json:"size"`
 	File     []byte `json:"file"`
@@ -207,7 +207,7 @@ func (t *Transport) exportMultipartFormData(request *http.Request) error {
 
 		if len(fs) > 1 {
 
-			allFiles := make([]fileData, 0)
+			allFiles := make([]MultipartFileData, 0)
 
 			for _, f := range fs {
 				file, err := extractFileData(f)
@@ -252,7 +252,7 @@ func (t *Transport) exportMultipartFormData(request *http.Request) error {
 	return nil
 }
 
-func extractFileData(f *multipart.FileHeader) (*fileData, error) {
+func extractFileData(f *multipart.FileHeader) (*MultipartFileData, error) {
 	file, err := f.Open()
 	if err != nil {
 		return nil, err
@@ -263,7 +263,7 @@ func extractFileData(f *multipart.FileHeader) (*fileData, error) {
 		return nil, err
 	}
 
-	return &fileData{
+	return &MultipartFileData{
 		FileName: f.Filename,
 		Size:     f.Size,
 		File:     fileByte,

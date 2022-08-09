@@ -143,18 +143,12 @@ func (t Request) Transform(transport *hachibi.Transport) error {
 }
 
 func (t Req) PreProcess(ctx context.Context, transport *hachibi.Transport) error {
-	if err := json.Unmarshal(transport.Request.Body, &t); err != nil {
-		return err
-	}
-
-	t["image"] = fmt.Sprintf("%s/%s", "upload", "image-123")
-
-	newBody, err := json.Marshal(t)
+	files, err := transport.GetMultipartFileDataFromRequest("file")
 	if err != nil {
 		return err
 	}
 
-	transport.Request.Body = newBody
+	log.Println(files[0].File)
 	return nil
 }
 

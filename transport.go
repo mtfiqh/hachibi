@@ -269,3 +269,34 @@ func extractFileData(f *multipart.FileHeader) (*MultipartFileData, error) {
 		File:     fileByte,
 	}, nil
 }
+
+func (t Transport) GetMultipartFileDataFromRequest(key string) ([]MultipartFileData, error) {
+	if !strings.Contains(t.Request.Header.Get("Content-Type"), "multipart/form-data") {
+		return nil, errors.New("not multipart form data")
+	}
+
+	body := make(map[string]any)
+	if err := json.Unmarshal(t.Request.Body, &body); err != nil {
+		return nil, errors.Wrap(err, "failed unmarshal to body")
+	}
+
+	fileDataBytes, err := json.Marshal(body[key])
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal body")
+	}
+
+	fileDatas := make([]MultipartFileData, 0)
+	fileData := MultipartFileData{}
+
+	err = json.Unmarshal(fileDataBytes, &fileData)
+	if err != nil {
+		err := json.Unmarshal(fileDataBytes, &fileDatas)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed unmarshal to slice of multipart file data")
+		}
+	} else {
+		fileDatas = append(fileDatas, fileData)
+	}
+
+	return fileDatas, nil
+}

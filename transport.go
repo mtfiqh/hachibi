@@ -1,13 +1,8 @@
 package hachibi
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"io"
-	"mime/multipart"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -29,34 +24,24 @@ type Response struct {
 type Transport struct {
 	originalRoundTripper http.RoundTripper
 
-	Request  Request  `json:"request"`
-	Response Response `json:"response"`
-
-	Duration   int64  `json:"duration"`
-	URL        string `json:"url"`
-	Method     string `json:"method"`
-	StatusCode int    `json:"statusCode"`
-
-	Event string `json:"event"`
-
-	Error Error `json:"error"`
+	HttpData
 
 	preProcessor  PreProcessor
 	processor     Processor
 	postProcessor PostProcessor
-	ErrorHandler  ErrorHandler
+	errorHandler  ErrorHandler
 }
 
 type Processor interface {
-	Process(ctx context.Context, transport *Transport) error
+	Process(ctx context.Context, httpData *HttpData) error
 }
 
 type PreProcessor interface {
-	PreProcess(ctx context.Context, transport *Transport) error
+	PreProcess(ctx context.Context, httpData *HttpData) error
 }
 
 type PostProcessor interface {
-	PostProcessor(ctx context.Context, transport *Transport) error
+	PostProcessor(ctx context.Context, httpData *HttpData) error
 }
 
 type ErrorHandler interface {
@@ -66,7 +51,9 @@ type ErrorHandler interface {
 func NewTransport(opts ...TransportOpt) *Transport {
 	t := &Transport{
 		originalRoundTripper: http.DefaultTransport,
-		Error:                make([]error, 0),
+		HttpData: HttpData{
+			Error: make([]error, 0),
+		},
 	}
 
 	for _, opt := range opts {
@@ -98,28 +85,28 @@ func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 		t.Duration = currentTime.Sub(tNow).Milliseconds()
 
 		if t.preProcessor != nil {
-			if err := t.preProcessor.PreProcess(ctx, t); err != nil {
+			if err := t.preProcessor.PreProcess(ctx, &t.HttpData); err != nil {
 				err = errors.Wrap(err, "pre process error")
 				t.Error = append(t.Error, err)
 			}
 		}
 
 		if t.processor != nil {
-			if err := t.processor.Process(ctx, t); err != nil {
+			if err := t.processor.Process(ctx, &t.HttpData); err != nil {
 				err = errors.Wrap(err, "process error")
 				t.Error = append(t.Error, err)
 			}
 		}
 
 		if t.postProcessor != nil {
-			if err := t.postProcessor.PostProcessor(ctx, t); err != nil {
+			if err := t.postProcessor.PostProcessor(ctx, &t.HttpData); err != nil {
 				err = errors.Wrap(err, "post process error")
 				t.Error = append(t.Error, err)
 			}
 		}
 
-		if len(t.Error) > 0 && t.ErrorHandler != nil {
-			t.ErrorHandler.ErrorHandle(ctx, t.Error)
+		if len(t.Error) > 0 && t.errorHandler != nil {
+			t.errorHandler.ErrorHandle(ctx, t.Error)
 		}
 	}()
 
@@ -130,173 +117,4 @@ func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	}
 
 	return response, nil
-}
-
-func (t *Transport) extractResponse(r *http.Response) error {
-	t.StatusCode = r.StatusCode
-	t.Response.Header = r.Header
-
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		return err
-	}
-	r.Body.Close()
-
-	t.Response.Body = bodyBytes
-
-	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-	return nil
-}
-
-func (t *Transport) extractRequest(r *http.Request) error {
-	t.URL = r.URL.String()
-	t.Method = r.Method
-	t.Request.Header = r.Header
-
-	if strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
-		return t.exportMultipartFormData(r)
-	}
-
-	if r.Body != nil {
-		body, err := io.ReadAll(r.Body)
-		r.Body.Close()
-		if err != nil {
-			return errors.Wrap(err, "failed to read all request body")
-		}
-
-		t.Request.Body = body
-
-		r.Body = io.NopCloser(bytes.NewBuffer(body))
-	}
-
-	return nil
-}
-
-type MultipartFileData struct {
-	FileName string `json:"file_name"`
-	Size     int64  `json:"size"`
-	File     []byte `json:"file"`
-}
-
-func (t *Transport) exportMultipartFormData(request *http.Request) error {
-	r := request.Clone(request.Context())
-	// copy the body
-	rBody, err := io.ReadAll(request.Body)
-	if err != nil {
-		return err
-	}
-	request.Body.Close()
-
-	//fill body
-	request.Body = io.NopCloser(bytes.NewBuffer(rBody))
-	r.Body = io.NopCloser(bytes.NewBuffer(rBody))
-
-	err = r.ParseMultipartForm(32 << 20)
-	if err != nil {
-		return err
-	}
-
-	m := r.MultipartForm
-
-	body := map[string]any{}
-
-	files := m.File
-	for key, fs := range files {
-		var fileBody any
-
-		if len(fs) > 1 {
-
-			allFiles := make([]MultipartFileData, 0)
-
-			for _, f := range fs {
-				file, err := extractFileData(f)
-				if err != nil {
-					return err
-				}
-
-				allFiles = append(allFiles, *file)
-
-			}
-
-			fileBody = allFiles
-
-		} else {
-			file, err := extractFileData(fs[0])
-			if err != nil {
-				return err
-			}
-
-			fileBody = file
-		}
-
-		body[key] = fileBody
-	}
-
-	for key, v := range m.Value {
-		if len(v) > 1 {
-			body[key] = v
-			continue
-		}
-
-		body[key] = v[0]
-	}
-
-	b, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-
-	t.Request.Body = b
-
-	return nil
-}
-
-func extractFileData(f *multipart.FileHeader) (*MultipartFileData, error) {
-	file, err := f.Open()
-	if err != nil {
-		return nil, err
-	}
-
-	fileByte, err := io.ReadAll(file)
-	if err != nil {
-		return nil, err
-	}
-
-	return &MultipartFileData{
-		FileName: f.Filename,
-		Size:     f.Size,
-		File:     fileByte,
-	}, nil
-}
-
-func (t Transport) GetMultipartFileDataFromRequest(key string) ([]MultipartFileData, error) {
-	if !strings.Contains(t.Request.Header.Get("Content-Type"), "multipart/form-data") {
-		return nil, errors.New("not multipart form data")
-	}
-
-	body := make(map[string]any)
-	if err := json.Unmarshal(t.Request.Body, &body); err != nil {
-		return nil, errors.Wrap(err, "failed unmarshal to body")
-	}
-
-	fileDataBytes, err := json.Marshal(body[key])
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to marshal body")
-	}
-
-	fileDatas := make([]MultipartFileData, 0)
-	fileData := MultipartFileData{}
-
-	err = json.Unmarshal(fileDataBytes, &fileData)
-	if err != nil {
-		err := json.Unmarshal(fileDataBytes, &fileDatas)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed unmarshal to slice of multipart file data")
-		}
-	} else {
-		fileDatas = append(fileDatas, fileData)
-	}
-
-	return fileDatas, nil
 }

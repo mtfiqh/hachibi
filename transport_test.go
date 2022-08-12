@@ -30,37 +30,31 @@ type Processor struct {
 	db *sqlx.DB
 }
 
-func (p Processor) Process(ctx context.Context, transport *hachibi.Transport) error {
+func (p Processor) Process(ctx context.Context, httpData *hachibi.HttpData) error {
 
 	var requestBody any
-	err := json.Unmarshal(transport.Request.Body, &requestBody)
+	err := json.Unmarshal(httpData.Request.Body, &requestBody)
 	if err != nil {
-		requestBody = transport.Request.Body
+		requestBody = httpData.Request.Body
 	}
 
 	var responseBody any
-	err = json.Unmarshal(transport.Response.Body, &responseBody)
+	err = json.Unmarshal(httpData.Response.Body, &responseBody)
 	if err != nil {
-		responseBody = transport.Response.Body
+		responseBody = httpData.Response.Body
 	}
 
 	request := map[string]any{
-		"header": transport.Request.Header,
+		"header": httpData.Request.Header,
 		"body":   requestBody,
 	}
 
 	response := map[string]any{
-		"header": transport.Response.Header,
+		"header": httpData.Response.Header,
 		"body":   responseBody,
 	}
 
-	if p.Transformer != nil {
-		err := p.Transformer.Transform(transport)
-		if err != nil {
-			return err
-		}
-	}
-	errB, _ := json.Marshal(transport.Error)
+	errB, _ := json.Marshal(httpData.Error)
 	log.Println(string(errB))
 	if p.db != nil {
 		query := `insert into logs (id, request, response, method, url, duration, status_code, created_at) values (:id, :request, :response, :method, :url, :duration, :status_code, :created_at)`
@@ -74,10 +68,10 @@ func (p Processor) Process(ctx context.Context, transport *hachibi.Transport) er
 			"id":          uuid.New().String(),
 			"request":     requestBytes,
 			"response":    responseBytes,
-			"method":      transport.Method,
-			"url":         transport.URL,
-			"duration":    transport.Duration,
-			"status_code": transport.StatusCode,
+			"method":      httpData.Method,
+			"url":         httpData.URL,
+			"duration":    httpData.Duration,
+			"status_code": httpData.StatusCode,
 			"created_at":  time.Now(),
 		})
 		if err != nil {
@@ -142,8 +136,8 @@ func (t Request) Transform(transport *hachibi.Transport) error {
 	return nil
 }
 
-func (t Req) PreProcess(ctx context.Context, transport *hachibi.Transport) error {
-	files, err := transport.GetMultipartFileDataFromRequest("file")
+func (t Req) PreProcess(ctx context.Context, httpData *hachibi.HttpData) error {
+	files, err := httpData.GetMultipartFileDataFromRequest("file")
 	if err != nil {
 		return err
 	}
@@ -181,12 +175,11 @@ func TestTransport_RoundTrip(t *testing.T) {
 
 	tt := Req{}
 	pp := NewProcessor(WithDB(db))
-	transport := hachibi.NewTransport(hachibi.WithProcessingData(pp), hachibi.WithPreProcessor(tt), hachibi.WithErrorHandle(pp))
+	transport := hachibi.NewTransport(hachibi.TransportWithProcessor(pp), hachibi.TransportWithPreProcessor(tt), hachibi.TransportWithErrorHandler(pp))
 	client := http.Client{Transport: transport}
 	url := "http://localhost:1234/post"
 
 	t.Run("with application/json post with transformer", func(t *testing.T) {
-		//transport := hachibi.NewTransport(hachibi.WithProcessingData(NewProcessor(WithDB(db))))
 		client := http.Client{Transport: transport}
 
 		body := struct {

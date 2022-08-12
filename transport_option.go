@@ -2,31 +2,31 @@ package hachibi
 
 type TransportOpt func(*Transport)
 
-func WithProcessingData(processor Processor) TransportOpt {
+func TransportWithProcessor(processor Processor) TransportOpt {
 	return func(transport *Transport) {
 		transport.processor = processor
 	}
 }
 
-func WithEventName(name string) TransportOpt {
+func TransportWithEventName(name string) TransportOpt {
 	return func(transport *Transport) {
 		transport.Event = name
 	}
 }
 
-func WithErrorHandle(handler ErrorHandler) TransportOpt {
+func TransportWithErrorHandler(handler ErrorHandler) TransportOpt {
 	return func(transport *Transport) {
-		transport.ErrorHandler = handler
+		transport.errorHandler = handler
 	}
 }
 
-func WithPreProcessor(p PreProcessor) TransportOpt {
+func TransportWithPreProcessor(p PreProcessor) TransportOpt {
 	return func(transport *Transport) {
 		transport.preProcessor = p
 	}
 }
 
-func WithPostProcessor(p PostProcessor) TransportOpt {
+func TransportWithPostProcessor(p PostProcessor) TransportOpt {
 	return func(transport *Transport) {
 		transport.postProcessor = p
 	}

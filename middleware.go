@@ -131,11 +131,6 @@ func getMiddlewareHttpData(w http.ResponseWriter, request *http.Request) (*HttpD
 		httpData.Method = request.Method
 		httpData.StatusCode = writerClone.statusCode
 
-		err := httpData.extractRequest(request)
-		if err != nil {
-			httpData.Error = append(httpData.Error, err)
-		}
-
 		httpData.Response = Response{Payload{
 			Header: writerClone.w.Header().Clone(),
 			Body:   writerClone.body.Bytes(),
@@ -154,6 +149,11 @@ func (m Middleware) Middleware(next http.HandlerFunc) http.HandlerFunc {
 		writerClone := newWriter(writer)
 		httpData := HttpData{}
 		extractD := extractData(false)
+
+		err := httpData.extractRequest(request)
+		if err != nil {
+			httpData.Error = append(httpData.Error, err)
+		}
 
 		ctx = context.WithValue(ctx, keyExtractData, &extractD)
 		ctx = context.WithValue(ctx, KeyHttpDataCtxMiddleware, &httpData)

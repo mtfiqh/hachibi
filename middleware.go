@@ -5,6 +5,8 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 type Writer struct {
@@ -36,8 +38,13 @@ func (w *Writer) WriteHeader(statusCode int) {
 	w.w.WriteHeader(statusCode)
 }
 
+type KeyCtxMiddleware int
+
 const (
-	KeyErrorCtxMiddleware = "middleware-error"
+	KeyErrorCtxMiddleware    = KeyCtxMiddleware(0)
+	KeyHttpDataCtxMiddleware = KeyCtxMiddleware(1)
+	KeyEventCtxMiddleware    = KeyCtxMiddleware(2)
+	keyExtractData           = KeyCtxMiddleware(3)
 )
 
 func AddErrorInMiddlewareCtx(ctx context.Context, err error) context.Context {
@@ -72,6 +79,8 @@ type Middleware struct {
 	eventName string
 }
 
+type extractData bool
+
 type MiddlewareOpt func(*Middleware)
 
 func MiddlewareWithProcessor(processor Processor) MiddlewareOpt {
@@ -83,12 +92,6 @@ func MiddlewareWithProcessor(processor Processor) MiddlewareOpt {
 func MiddlewareWithErrorHandler(errorHandler ErrorHandler) MiddlewareOpt {
 	return func(middleware *Middleware) {
 		middleware.errorHandler = errorHandler
-	}
-}
-
-func MiddlewareWithPreProcessor(preProcessor PreProcessor) MiddlewareOpt {
-	return func(middleware *Middleware) {
-		middleware.preProcessor = preProcessor
 	}
 }
 
@@ -107,63 +110,66 @@ func (m Middleware) SetPreProcessor(preProcessor PreProcessor) *Middleware {
 	return &newM
 }
 
-func (m Middleware) SetProcessor(processor Processor) *Middleware {
-	newM := m
-	newM.processor = processor
+func getMiddlewareHttpData(w http.ResponseWriter, request *http.Request) (*HttpData, error) {
+	httpData, ok := request.Context().Value(KeyHttpDataCtxMiddleware).(*HttpData)
+	if !ok {
+		return nil, errors.New("http data not exist")
+	}
 
-	return &newM
+	extracted, ok := request.Context().Value(keyExtractData).(*extractData)
+	if !ok {
+		return nil, errors.New("no information about extracted data")
+	}
+
+	if !(*extracted) {
+		writerClone, ok := w.(*Writer)
+		if !ok {
+			return nil, errors.New("cannot cast writer, you need to place preProcess after middleware")
+		}
+
+		httpData.URL = request.URL.String()
+		httpData.Method = request.Method
+		httpData.StatusCode = writerClone.statusCode
+
+		err := httpData.extractRequest(request)
+		if err != nil {
+			httpData.Error = append(httpData.Error, err)
+		}
+
+		httpData.Response = Response{Payload{
+			Header: writerClone.w.Header().Clone(),
+			Body:   writerClone.body.Bytes(),
+		}}
+
+		*extracted = true
+	}
+
+	return httpData, nil
 }
 
-func (m Middleware) SetErrorHandler(handler ErrorHandler) *Middleware {
-	newM := m
-	newM.errorHandler = handler
-
-	return &newM
-}
-
-func (m Middleware) SetEventName(event string) *Middleware {
-	newM := m
-	newM.eventName = event
-
-	return &newM
-}
-
-func (m Middleware) Middleware(next http.HandlerFunc) http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+func (m Middleware) Middleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		ctx := request.Context()
 		timeStart := time.Now().Local()
 		writerClone := newWriter(writer)
+		httpData := HttpData{}
+		extractD := extractData(false)
+
+		ctx = context.WithValue(ctx, keyExtractData, &extractD)
+		ctx = context.WithValue(ctx, KeyHttpDataCtxMiddleware, &httpData)
+		request = request.WithContext(ctx)
 
 		defer func() {
+			httpData, err := getMiddlewareHttpData(writerClone, request)
+			if err != nil {
+				return
+			}
 
 			ctx := request.Context()
-			duration := time.Since(timeStart)
-			httpData := &HttpData{
-				Duration:   duration.Nanoseconds(),
-				URL:        request.URL.String(),
-				Method:     request.Method,
-				StatusCode: writerClone.statusCode,
-				Event:      m.eventName,
-			}
+			httpData.Duration = time.Since(timeStart).Nanoseconds()
 
 			if err := getErrorInMiddlewareCtx(ctx); err != nil {
 				httpData.Error = append(httpData.Error, err...)
-			}
-
-			err := httpData.extractRequest(request)
-			if err != nil {
-				httpData.Error = append(httpData.Error, err)
-			}
-
-			httpData.Response = Response{Payload{
-				Header: writerClone.w.Header().Clone(),
-				Body:   writerClone.body.Bytes(),
-			}}
-
-			if m.preProcessor != nil {
-				err := m.preProcessor.PreProcess(ctx, httpData)
-				if err != nil {
-					httpData.Error = append(httpData.Error, err)
-				}
 			}
 
 			if m.processor != nil {
@@ -179,5 +185,41 @@ func (m Middleware) Middleware(next http.HandlerFunc) http.Handler {
 		}()
 
 		next(writerClone, request)
-	})
+	}
+}
+
+func (m Middleware) PreProcessMiddleware(preProcessor PreProcessor) func(next http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			next(writer, request)
+
+			if preProcessor != nil {
+				httpData, err := getMiddlewareHttpData(writer, request)
+				if err != nil {
+					return
+				}
+
+				err = preProcessor.PreProcess(request.Context(), httpData)
+				if err != nil {
+					httpData.Error = append(httpData.Error, err)
+				}
+			}
+		})
+	}
+}
+
+func (m Middleware) SetEventName(event string) func(next http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+
+		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			next(writer, request)
+
+			httpData, err := getMiddlewareHttpData(writer, request)
+			if err != nil {
+				return
+			}
+
+			httpData.Event = event
+		})
+	}
 }

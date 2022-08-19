@@ -51,7 +51,7 @@ func TestMiddleware(t *testing.T) {
 	m := hachibi.NewMiddleware(hachibi.MiddlewareWithProcessor(P{}))
 
 	t.Run("event name satu", func(t *testing.T) {
-		h := m.SetPreProcessor(P{}).SetEventName("satu").Middleware(handler)
+		h := m.Middleware(m.PreProcessMiddleware(P{})(m.SetEventName("satu")(handler)))
 
 		res := httptest.NewRecorder()
 		h.ServeHTTP(res, req)
@@ -59,10 +59,11 @@ func TestMiddleware(t *testing.T) {
 		t.Log("res =>", res.Result())
 		b, _ := io.ReadAll(res.Body)
 		t.Log("body => ", string(b))
+
 	})
 
 	t.Run("event name satu", func(t *testing.T) {
-		h := m.SetEventName("dua").Middleware(handler)
+		h := m.Middleware(m.SetEventName("dua")(handler))
 
 		res := httptest.NewRecorder()
 		h.ServeHTTP(res, req)

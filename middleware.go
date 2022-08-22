@@ -121,7 +121,7 @@ func getMiddlewareHttpData(w http.ResponseWriter, request *http.Request) (*HttpD
 		return nil, errors.New("no information about extracted data")
 	}
 
-	if !(*extracted || httpData.StatusCode == 0) {
+	if !(*extracted) || httpData.StatusCode == 0 {
 		writerClone, ok := w.(*Writer)
 		if !ok {
 			return nil, errors.New("cannot cast writer, you need to place preProcess after middleware")

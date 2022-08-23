@@ -25,6 +25,14 @@ type HttpData struct {
 	Error Error `json:"error"`
 }
 
+func (h *HttpData) AppendError(e error) {
+	if h.Error == nil {
+		h.Error = make(Error, 0)
+	}
+
+	h.Error = append(h.Error, e)
+}
+
 func (t *HttpData) extractResponse(r *http.Response) error {
 	t.StatusCode = r.StatusCode
 	t.Response.Header = r.Header

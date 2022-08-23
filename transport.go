@@ -51,9 +51,7 @@ type ErrorHandler interface {
 func NewTransport(opts ...TransportOpt) *Transport {
 	t := &Transport{
 		originalRoundTripper: http.DefaultTransport,
-		HttpData: HttpData{
-			Error: make([]error, 0),
-		},
+		HttpData:             HttpData{},
 	}
 
 	for _, opt := range opts {
@@ -70,14 +68,14 @@ func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	var response *http.Response
 
 	if err := t.extractRequest(request); err != nil {
-		t.Error = append(t.Error, err)
+		t.HttpData.AppendError(err)
 	}
 
 	defer func() {
 
 		if response != nil {
 			if err := t.extractResponse(response); err != nil {
-				t.Error = append(t.Error, err)
+				t.HttpData.AppendError(err)
 			}
 		}
 
@@ -87,25 +85,25 @@ func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 		if t.preProcessor != nil {
 			if err := t.preProcessor.PreProcess(ctx, &t.HttpData); err != nil {
 				err = errors.Wrap(err, "pre process error")
-				t.Error = append(t.Error, err)
+				t.HttpData.AppendError(err)
 			}
 		}
 
 		if t.processor != nil {
 			if err := t.processor.Process(ctx, &t.HttpData); err != nil {
 				err = errors.Wrap(err, "process error")
-				t.Error = append(t.Error, err)
+				t.HttpData.AppendError(err)
 			}
 		}
 
 		if t.postProcessor != nil {
 			if err := t.postProcessor.PostProcessor(ctx, &t.HttpData); err != nil {
 				err = errors.Wrap(err, "post process error")
-				t.Error = append(t.Error, err)
+				t.HttpData.AppendError(err)
 			}
 		}
 
-		if len(t.Error) > 0 && t.errorHandler != nil {
+		if t.Error != nil && t.errorHandler != nil {
 			t.errorHandler.ErrorHandle(ctx, t.Error)
 		}
 	}()

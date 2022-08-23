@@ -201,7 +201,7 @@ func (m Middleware) PreProcessMiddleware(preProcessor PreProcessor) func(next ht
 
 				err = preProcessor.PreProcess(request.Context(), httpData)
 				if err != nil {
-					httpData.Error = append(httpData.Error, err)
+					httpData.AppendError(err)
 				}
 			}
 		})

@@ -2,14 +2,16 @@ package hachibi
 
 import "strings"
 
-type Error []error
+type Error struct {
+	errors []error
+}
 
-func (e Error) Error() string {
+func (e *Error) Error() string {
 	errors := make([]string, 0)
 
-	for _, ee := range e {
-		errors = append(errors, ee.Error())
-	}
+	//for _, ee := range e {
+	//	errors = append(errors, ee.Error())
+	//}
 
 	return strings.Join(errors, ", ")
 }

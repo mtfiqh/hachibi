@@ -104,13 +104,13 @@ func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 		}
 
 		if t.Error != nil && t.errorHandler != nil {
-			t.errorHandler.ErrorHandle(ctx, t.Error)
+			t.errorHandler.ErrorHandle(ctx, *t.Error)
 		}
 	}()
 
 	response, errRoundTrip := t.originalRoundTripper.RoundTrip(request)
 	if errRoundTrip != nil {
-		t.Error = append(t.Error, errRoundTrip)
+		t.HttpData.AppendError(errRoundTrip)
 		return nil, errRoundTrip
 	}
 

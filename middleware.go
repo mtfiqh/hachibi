@@ -63,7 +63,7 @@ func AddErrorInMiddlewareCtx(ctx context.Context, err error) context.Context {
 }
 
 func getErrorInMiddlewareCtx(ctx context.Context) error {
-	err, ok := ctx.Value(KeyErrorCtxMiddleware).(Error)
+	err, ok := ctx.Value(KeyErrorCtxMiddleware).(*Error)
 	if !ok {
 		return nil
 	}
@@ -181,7 +181,7 @@ func (m Middleware) Middleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 
 			if m.errorHandler != nil && httpData.Error != nil {
-				m.errorHandler.ErrorHandle(ctx, httpData.Error)
+				m.errorHandler.ErrorHandle(ctx, *httpData.Error)
 			}
 		}()
 

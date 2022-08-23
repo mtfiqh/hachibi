@@ -51,7 +51,7 @@ type ErrorHandler interface {
 func NewTransport(opts ...TransportOpt) *Transport {
 	t := &Transport{
 		originalRoundTripper: http.DefaultTransport,
-		HttpData:             HttpData{},
+		HttpData:             HttpData{Error: nil},
 	}
 
 	for _, opt := range opts {

@@ -62,8 +62,8 @@ func AddErrorInMiddlewareCtx(ctx context.Context, err error) context.Context {
 	return context.WithValue(ctx, KeyErrorCtxMiddleware, err)
 }
 
-func getErrorInMiddlewareCtx(ctx context.Context) []error {
-	err, ok := ctx.Value(KeyErrorCtxMiddleware).([]error)
+func getErrorInMiddlewareCtx(ctx context.Context) error {
+	err, ok := ctx.Value(KeyErrorCtxMiddleware).(Error)
 	if !ok {
 		return nil
 	}
@@ -147,12 +147,12 @@ func (m Middleware) Middleware(next http.HandlerFunc) http.HandlerFunc {
 		ctx := request.Context()
 		timeStart := time.Now().Local()
 		writerClone := newWriter(writer)
-		httpData := HttpData{}
+		httpData := HttpData{Error: nil}
 		extractD := extractData(false)
 
 		err := httpData.extractRequest(request)
 		if err != nil {
-			httpData.Error = append(httpData.Error, err)
+			httpData.AppendError(err)
 		}
 
 		ctx = context.WithValue(ctx, keyExtractData, &extractD)
@@ -169,17 +169,18 @@ func (m Middleware) Middleware(next http.HandlerFunc) http.HandlerFunc {
 			httpData.Duration = time.Since(timeStart).Nanoseconds()
 
 			if err := getErrorInMiddlewareCtx(ctx); err != nil {
-				httpData.Error = append(httpData.Error, err...)
+				httpData.AppendError(err)
+
 			}
 
 			if m.processor != nil {
 				err := m.processor.Process(ctx, httpData)
 				if err != nil {
-					httpData.Error = append(httpData.Error, err)
+					httpData.AppendError(err)
 				}
 			}
 
-			if m.errorHandler != nil && len(httpData.Error) > 0 {
+			if m.errorHandler != nil && httpData.Error != nil {
 				m.errorHandler.ErrorHandle(ctx, httpData.Error)
 			}
 		}()

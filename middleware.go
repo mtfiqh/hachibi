@@ -181,7 +181,7 @@ func (m Middleware) Middleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 
 			if m.errorHandler != nil && httpData.Error != nil {
-				m.errorHandler.ErrorHandle(ctx, *httpData.Error)
+				m.errorHandler.ErrorHandle(ctx, httpData.Error)
 			}
 		}()
 

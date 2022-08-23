@@ -1,17 +1,18 @@
 package hachibi
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
-type Error struct {
-	errors []error
-}
+type Error []error
 
-func (e *Error) Error() string {
+func (e Error) Error() string {
 	errors := make([]string, 0)
 
-	for _, ee := range e.errors {
+	for _, ee := range e {
 		errors = append(errors, ee.Error())
 	}
 
-	return strings.Join(errors, ", ")
+	return fmt.Sprintf("[%s]", strings.Join(errors, ", "))
 }

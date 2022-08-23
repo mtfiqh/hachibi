@@ -22,15 +22,15 @@ type HttpData struct {
 
 	Event string `json:"event"`
 
-	Error *Error `json:"error"`
+	Error Error `json:"error"`
 }
 
 func (h *HttpData) AppendError(e error) {
 	if h.Error == nil {
-		h.Error = &Error{errors: make([]error, 0)}
+		h.Error = make(Error, 0)
 	}
 
-	h.Error.errors = append(h.Error.errors, e)
+	h.Error = append(h.Error, e)
 }
 
 func (t *HttpData) extractResponse(r *http.Response) error {

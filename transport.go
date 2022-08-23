@@ -104,7 +104,7 @@ func (t *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 		}
 
 		if t.Error != nil && t.errorHandler != nil {
-			t.errorHandler.ErrorHandle(ctx, *t.Error)
+			t.errorHandler.ErrorHandle(ctx, t.Error)
 		}
 	}()
 
